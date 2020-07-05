@@ -1,0 +1,23 @@
+{
+  "name": "midmare-http-router",
+  "version": "1.0.0",
+  "description": "midmare http router lib",
+  "main": "dist/HttpRouter.js",
+  "scripts": {
+    "test": "echo 1"
+  },
+  "keywords": [
+    "http",
+    "router",
+    "midmare"
+  ],
+  "author": "Ivan Petushynskyi",
+  "license": "ISC",
+  "dependencies": {
+    "midmare": "^1.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^14.0.14",
+    "typescript": "^3.9.6"
+  }
+}
