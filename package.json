@@ -1,0 +1,32 @@
+{
+  "name": "midmare-http-router",
+  "version": "1.0.0",
+  "description": "midmare http router lib",
+  "main": "dist/HttpRouter.js",
+  "scripts": {
+    "compile": "tsc",
+    "test": "echo \"test\""
+  },
+  "keywords": [
+    "http",
+    "router",
+    "midmare"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:W0LFMAN/midmare-http-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/W0LFMAN/midmare-http-router/issues"
+  },
+  "homepage": "https://github.com/W0LFMAN/midmare-http-router#readme",
+  "author": "Ivan Petushynskyi",
+  "license": "ISC",
+  "dependencies": {
+    "midmare": "^1.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^14.0.14",
+    "typescript": "^3.9.6"
+  }
+}
