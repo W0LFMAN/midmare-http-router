@@ -1,6 +1,7 @@
 {
-  "include": ["*.ts","lib/**/*.ts", "config/*.tsx"],
+  "include": ["lib/*.ts"],
   "compilerOptions": {
+    "declaration": true,
     "outDir": "./dist",
     "lib": ["es2017"],
     "module": "commonjs",
@@ -8,7 +9,6 @@
     "experimentalDecorators": false,
     "emitDecoratorMetadata": false,
     "pretty": true,
-    "sourceMap": true,
     "alwaysStrict": true,
     "noImplicitAny": false,
     "noImplicitThis": false,
