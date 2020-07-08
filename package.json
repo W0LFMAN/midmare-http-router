@@ -1,6 +1,6 @@
 {
   "name": "midmare-http-router",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "midmare http router lib",
   "main": "dist/lib/HttpRouter.js",
   "scripts": {
