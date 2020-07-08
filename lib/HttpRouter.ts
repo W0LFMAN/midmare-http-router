@@ -1,4 +1,6 @@
 import * as url from "url";
+import * as http from "http";
+import * as assert from "assert";
 import * as Midmare from "midmare";
 import {Stream} from "stream";
 
@@ -6,10 +8,13 @@ export namespace Router {
     export class HttpRouter extends Midmare.Router.Router {
         constructor(options: Midmare.Router.IOptions) {
             super(options);
+
             this.use(async (ctx, next) => {
                 try {
                     await next();
                 } catch (err) {
+                    ctx.status = 500;
+                    ctx.message = 'Server Error';
                     ctx.json({
                         status: 500,
                         error: {
@@ -22,7 +27,7 @@ export namespace Router {
             });
         }
 
-        protected extendContext(ctx, request, response) {
+        protected extendContext(ctx: Midmare.Context.Context, request: http.IncomingMessage, response: http.ServerResponse): Midmare.Context.Context {
             Object.defineProperties(ctx, {
                 originRequest: {
                     value: request,
@@ -62,7 +67,7 @@ export namespace Router {
                 },
                 path: {
                     get() {
-                        return url.parse(request.url).pathname;
+                        return url.parse(request.url!).pathname;
                     },
                     configurable: false,
                 },
@@ -77,7 +82,7 @@ export namespace Router {
                         return response.statusCode;
                     },
                     set(code) {
-                        ctx.assert(
+                        assert(
                             code >= 100 && code <= 999 &&
                             Number.isInteger(code) &&
                             Number.isFinite(code),
@@ -91,6 +96,10 @@ export namespace Router {
                     get() {
                         return response.statusMessage;
                     },
+                    set(val) {
+                        assert(typeof val === 'string', new TypeError('statusMessage must a string type.'))
+                        response.statusMessage = val;
+                    },
                     configurable: false,
                 },
                 body: {
@@ -98,7 +107,7 @@ export namespace Router {
                         return this._body;
                     },
                     set(value) {
-                        const body = this._body = value;
+                        this._body = value;
 
                         if (value === null) {
                             this.status = 204;
@@ -119,13 +128,12 @@ export namespace Router {
 
                         if (value instanceof Stream) {
                             response.socket.once('finish', () => {
-                                this.__responseEnded = true;
                                 response.destroy();
                             });
-                            if (body != value) {
-                                value.once('error', err => this.ctx.onerror(err));
+                            if (this.body !== value) {
+                                value.once('error', err => ctx.error(err));
                                 // overwriting
-                                if (body !== null) this.remove('Content-Length');
+                                if (this.body !== null) this.remove('Content-Length');
                             }
 
                             if (hasContentType) this.type = 'bin';
@@ -169,7 +177,7 @@ export namespace Router {
                     value: function (field) {
                         const headers = typeof response.getHeaders === 'function'
                             ? response.getHeaders()
-                            : response._headers || {};
+                            : {} as http.OutgoingHttpHeaders;
 
                         if (!field) return headers;
                         return headers[field.toLowerCase()] || '';
@@ -200,6 +208,9 @@ export namespace Router {
                     configurable: false,
                 },
                 length: {
+                    get() {
+                        return this.get('Content-Length');
+                    },
                     set(len) {
                         this.set('Content-Length', len);
                     },
@@ -225,18 +236,10 @@ export namespace Router {
                 },
                 redirect: {
                     value(url, alt) {
-                        if ('back' === url) url = this.ctx.get('Referrer') || alt || '/';
+                        if ('back' === url) url = ctx.get('Referrer') || alt || '/';
                         this.set('Location', url);
 
                         this.status = 302;
-
-                        // html
-                        if (this.ctx.accepts('html')) {
-                            url = escape(url);
-                            this.type = 'text/html; charset=utf-8';
-                            this.body = `Redirecting to <a href="${url}">${url}</a>.`;
-                            return;
-                        }
 
                         // text
                         this.type = 'text/plain; charset=utf-8';
@@ -244,28 +247,21 @@ export namespace Router {
                     },
                     configurable: false
                 },
-                __responseEnded: {
-                    set(val: boolean) {
-                        this._responseEnded = val;
-                    },
-                    get() {
-                        return this._responseEnded;
-                    },
-                    configurable: false,
-                    enumerable: false
-                },
                 __handleEnd: {
                     value() {
-                        if (!this._responseEnded) {
+                        if(!response.writableEnded) {
                             if (this._body instanceof Stream) return this._body.pipe(response);
+
+                            if (this._body === null) return response.end();
                             if (Buffer.isBuffer(this._body)) return response.end(this._body);
                             if (typeof this._body === 'string') return response.end(this._body);
+
 
                             this.body = JSON.stringify(this._body);
                             if (!response.headersSent) {
                                 ctx.length = Buffer.byteLength(this._body);
                             }
-                            response.end(this._body);
+                            response.end(this.body);
                         }
                     },
                     enumerable: false,
@@ -276,20 +272,22 @@ export namespace Router {
         }
 
         // Simple http routes handling.
-        public routes() {
-            return (request, response) => {
-                const ctx = Object.create(new Midmare.Context.Context({
-                    path: url.parse(request.url).pathname,
+        public routes(): Midmare.Application.Callback {
+            return (request: http.IncomingMessage, response: http.ServerResponse) => {
+                const ctx: Midmare.Context.Context = Object.create(new Midmare.Context.Context({
+                    path: url.parse(request.url!).pathname,
                     app: {options: {}} as Midmare.Application.Application
                 }));
 
                 this.extendContext(ctx, request, response);
 
-                ((ctx: Midmare.Context.Context, next: Midmare.Middleware.NextCallback) => {
+                ((ctx: Midmare.Context.Context, next?: Midmare.Middleware.NextCallback): void => {
+                    next = next || ctx.next || ((err: Error) => { ctx.error(err || new Error('No `ctx.next`.')); });
                     const method = ctx.method ? ctx.method.toLowerCase() : ctx.method;
                     const path = this.options.routerPath || ctx.routerPath || ctx.path;
 
                     this.use(ctx => {
+                        ctx.status = 404;
                         ctx.json({
                             status: 404,
                             message: 'NotFound'
@@ -297,7 +295,6 @@ export namespace Router {
                     });
 
                     const matched = this.match(path);
-                    let routeChain;
 
                     if (ctx.matched) {
                         ctx.matched.push.apply(ctx.matched, matched.path);
@@ -305,9 +302,7 @@ export namespace Router {
                         ctx.matched = matched.path;
                     }
 
-                    ctx.router = this;
-
-                    if (!matched.route) return next();
+                    if (!matched.route) return next!();
 
                     const matchedRoutes = matched.path;
                     const mostSpecificRoute = matchedRoutes[matchedRoutes.length - 1];
@@ -316,7 +311,7 @@ export namespace Router {
                         ctx._matchedRouteName = mostSpecificRoute.name;
                     }
 
-                    routeChain = matchedRoutes.reduce((memo, route) => {
+                    const routeChain = matchedRoutes.reduce((memo, route) => {
                         memo.push((ctx, next) => {
                             ctx.captures = route.captures(path);
                             ctx.params = route.params(ctx.captures, ctx.params);
@@ -326,10 +321,9 @@ export namespace Router {
                         return memo.concat(route.stack.filter(mw => mw.method === method || !mw.method));
                     }, [] as Midmare.Middleware.Middleware[]);
 
-                    return Midmare.Application.Application.createCompose(routeChain)(ctx, next);
-                })(ctx, (err) => {
-                    ctx.next && ctx.next(err);
-                });
+                    return Midmare.Application.Application.createCompose(routeChain)(ctx, next)
+                        .then(() => ctx.__handleEnd()).catch(ctx.error);
+                })(ctx);
             };
         }
     }
