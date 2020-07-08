@@ -1,11 +1,14 @@
 {
   "name": "midmare-http-router",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "midmare http router lib",
-  "main": "dist/HttpRouter.js",
+  "main": "dist/lib/HttpRouter.js",
   "scripts": {
-    "compile": "tsc",
-    "test": "echo \"test\""
+    "compile": "gulp default",
+    "lint": "eslint --config .eslintrc.json",
+    "fix": "eslint --config .eslintrc.json --fix",
+    "test": "jest __tests__/",
+    "coverage": "jest __tests__/ --coverage --collectCoverageFrom=dist/**/*.js"
   },
   "keywords": [
     "http",
@@ -23,10 +26,21 @@
   "author": "Ivan Petushynskyi",
   "license": "ISC",
   "dependencies": {
-    "midmare": "^1.2.3"
+    "midmare": "^1.4.3"
   },
   "devDependencies": {
     "@types/node": "^14.0.14",
-    "typescript": "^3.9.6"
+    "@typescript-eslint/eslint-plugin": "^3.6.0",
+    "@typescript-eslint/parser": "^3.6.0",
+    "eslint": "^7.4.0",
+    "eslint-plugin-jest": "^23.18.0",
+    "eslint-plugin-node": "^11.1.0",
+    "gulp": "^4.0.2",
+    "gulp-sourcemaps": "^2.6.5",
+    "gulp-terser": "^1.2.0",
+    "gulp-typescript": "^6.0.0-alpha.1",
+    "jest": "^26.1.0",
+    "supertest": "^4.0.2",
+    "typescript": "^3.9.5"
   }
 }
