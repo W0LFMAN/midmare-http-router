@@ -1,3 +1,8 @@
+### v1.0.3
+* Added simple query parser & body parser
+* Added tests
+
+
 ### v1.0.2
 * Added github actions publish
 

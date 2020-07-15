@@ -1,10 +1,12 @@
 import * as url from "url";
 import * as http from "http";
 import * as assert from "assert";
+import * as qs from 'querystring';
 import * as Midmare from "midmare";
 import {Stream} from "stream";
 
 export namespace Router {
+
     export class HttpRouter extends Midmare.Router.Router {
         constructor(options: Midmare.Router.IOptions) {
             super(options);
@@ -25,6 +27,43 @@ export namespace Router {
                     });
                 }
             });
+
+            // query string parser
+            this
+                .use(async (ctx, next) => {
+                    const {query} = url.parse(ctx.url);
+
+                    if (query) {
+                        ctx.query = qs.parse(query);
+                    }
+
+                    await next();
+                })
+                .use(async (ctx, next) => {
+                    if (ctx.method === 'POST') {
+                        ctx.data = await new Promise((resolve, reject) => {
+                            const body: Buffer[] = [];
+
+                            ctx.req.on('data', chunk => {
+                                body.push(chunk);
+                            });
+
+                            ctx.req.on('error', reject);
+
+                            ctx.req.on('end', () => {
+                                const result = Buffer.concat(body).toString('utf-8');
+                                try {
+                                    resolve(JSON.parse(result));
+                                } catch (e) {
+                                    resolve(result);
+                                }
+                            });
+                        });
+
+                        return await next();
+                    }
+                    return await next();
+            })
         }
 
         protected extendContext(ctx: Midmare.Context.Context, request: http.IncomingMessage, response: http.ServerResponse): Midmare.Context.Context {
@@ -57,7 +96,7 @@ export namespace Router {
                     get() {
                         return request.method;
                     },
-                    configurable: false,
+                    configurable: false
                 },
                 url: {
                     get() {
@@ -109,7 +148,7 @@ export namespace Router {
                     set(value) {
                         this._body = value;
 
-                        if (value === null) {
+                        if (this._body === null) {
                             this.status = 204;
                             this.remove('Content-Type');
                             this.remove('Content-Length');
@@ -126,10 +165,11 @@ export namespace Router {
                             return;
                         }
 
-                        if (value instanceof Stream) {
+                        if (this._body instanceof Stream) {
                             response.socket.once('finish', () => {
                                 response.destroy();
                             });
+
                             if (this.body !== value) {
                                 value.once('error', err => ctx.error(err));
                                 // overwriting
@@ -145,10 +185,11 @@ export namespace Router {
                             this.length = Buffer.byteLength(value);
                             return;
                         }
+
                         this.remove('Content-Length');
                         this.type = 'json';
                     },
-                    configurable: false,
+                    configurable: false
                 },
                 remove: {
                     value: function (field) {
@@ -209,16 +250,27 @@ export namespace Router {
                 },
                 length: {
                     get() {
-                        return this.get('Content-Length');
+                        if (this.has('Content-Length')) {
+                            return parseInt(this.get('Content-Length'), 10) || 0;
+                        }
+
+                        if (!this.body || this.body instanceof Stream) return undefined;
+                        if ('string' === typeof this.body) return Buffer.byteLength(this.body);
+                        if (Buffer.isBuffer(this.body)) return this.body.length;
+                        return Buffer.byteLength(JSON.stringify(this.body));
                     },
                     set(len) {
                         this.set('Content-Length', len);
                     },
                     configurable: false,
                 },
-                responded: {
+                respond: {
+                    value: true,
+                    writable: true
+                },
+                writable: {
                     get() {
-                        return response.writableEnded || response.finished; /* `finished` for NodeJS <= 10 */
+                        return !(response.writableEnded || response.finished); /* `finished` for NodeJS <= 10 */
                     },
                     configurable: false,
                 },
@@ -253,53 +305,27 @@ export namespace Router {
                         this.body = `Redirecting to ${url}.`;
                     },
                     configurable: false
-                },
-                __handleEnd: {
-                    value() {
-                        if(!ctx.responded) {
-                            if (this._body instanceof Stream) return this._body.pipe(response);
-
-                            if (this._body === null) return response.end();
-                            if (Buffer.isBuffer(this._body)) return response.end(this._body);
-                            if (typeof this._body === 'string') return response.end(this._body);
-
-
-                            this.body = JSON.stringify(this._body);
-                            if (!response.headersSent) {
-                                ctx.length = Buffer.byteLength(this._body);
-                            }
-                            response.end(this.body);
-                        }
-                    },
-                    enumerable: false,
-                    configurable: false
                 }
             });
+
             return ctx;
         }
 
         // Simple http routes handling.
         public routes(): Midmare.Application.Callback {
             return (request: http.IncomingMessage, response: http.ServerResponse) => {
-                const ctx: Midmare.Context.Context = Object.create(new Midmare.Context.Context({
-                    path: url.parse(request.url!).pathname,
-                    app: {options: {}} as Midmare.Application.Application
-                }));
+                const ctx: Midmare.Context.Context = this.extendContext(
+                    Object.create(new Midmare.Context.Context({
+                        path: url.parse(request.url!).pathname,
+                        app: {options: {}} as Midmare.Application.Application
+                    } as Midmare.Context.IOptions)),
+                    request,
+                    response
+                );
 
-                this.extendContext(ctx, request, response);
-
-                ((ctx: Midmare.Context.Context, next?: Midmare.Middleware.NextCallback): void => {
-                    next = next || ctx.next || ((err: Error) => { ctx.error(err || new Error('No `ctx.next`.')); });
+                const executor = (ctx: Midmare.Context.Context): Promise<any> => {
                     const method = ctx.method ? ctx.method.toLowerCase() : ctx.method;
                     const path = this.options.routerPath || ctx.routerPath || ctx.path;
-
-                    this.use(ctx => {
-                        ctx.status = 404;
-                        ctx.json({
-                            status: 404,
-                            message: 'NotFound'
-                        });
-                    });
 
                     const matched = this.match(path);
 
@@ -309,7 +335,7 @@ export namespace Router {
                         ctx.matched = matched.path;
                     }
 
-                    if (!matched.route) return next!();
+                    if (!matched.route) return Promise.resolve();
 
                     const matchedRoutes = matched.path;
                     const mostSpecificRoute = matchedRoutes[matchedRoutes.length - 1];
@@ -325,12 +351,52 @@ export namespace Router {
                             ctx.routerName = route.name;
                             return next();
                         });
+
                         return memo.concat(route.stack.filter(mw => mw.method === method || !mw.method));
                     }, [] as Midmare.Middleware.Middleware[]);
 
-                    return Midmare.Application.Application.createCompose(routeChain)(ctx, next)
-                        .then(() => ctx.__handleEnd()).catch(ctx.error);
-                })(ctx);
+                    const caller = Midmare.Application.Application.createCompose([...routeChain, ctx => {
+                        ctx.status = 404;
+                        ctx.body = {status: 404, message: 'Not Found'};
+                    }]);
+
+                    return caller(ctx);
+                };
+
+                executor(ctx).then(() => {
+                    if (ctx.writable && ctx.respond !== false) {
+                        if ([204, 205, 304].includes(ctx.status)) {
+                            ctx.body = null;
+                            ctx.end();
+                        }
+
+                        if (ctx.method === 'HEAD') {
+                            if (!ctx.headersSent && !ctx.has('Content-Length')) {
+                                const len = ctx.length;
+                                if (Number.isInteger(ctx.length)) ctx.length = len;
+                            }
+                            return ctx.end();
+                        }
+
+                        if (ctx._body instanceof Stream) return ctx.body!.pipe(response);
+
+                        if ([null, undefined].includes(ctx._body)) {
+                            ctx.remove('Content-Type');
+                            ctx.remove('Transfer-Encoding');
+                            return response.end();
+                        }
+
+                        if (Buffer.isBuffer(ctx._body)) return response.end(ctx._body);
+                        if (typeof ctx._body === 'string') return response.end(ctx._body);
+
+                        ctx.body = JSON.stringify(ctx._body);
+                        if (!response.headersSent) {
+                            ctx.length = Buffer.byteLength(ctx.body);
+                        }
+                        response.end(ctx.body);
+                    }
+                });
+
             };
         }
     }
