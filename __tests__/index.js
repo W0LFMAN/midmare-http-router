@@ -33,7 +33,6 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.body = 'Hello World!';
     });
     
-    
     await request(router.routes())
       .get('/ololo')
       .expect(404);
@@ -92,7 +91,7 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.status = 200;
       ctx.body = fs.createReadStream('LICENSE');
       ctx.req.socket.on('finish', () => {
-        assert.strictEqual(ctx.responded, true);
+        assert.strictEqual(!ctx.writable, true);
       });
     });
     
@@ -107,7 +106,6 @@ describe('Midmare HttpRouter test: ',  () => {
     router.process('/route', function get(ctx) {
       ctx.status = 200;
       ctx.body = Buffer.from('Hello World!');
-      ctx.__handleEnd();
     });
     
     await request(router.routes())
@@ -137,6 +135,11 @@ describe('Midmare HttpRouter test: ',  () => {
     await request(router.routes())
       .get('/')
       .expect(200);
+    
+    await request(router.routes())
+      .get('/not-matched')
+      .expect(404);
+    
   });
   
   it('should body be string', async () => {
@@ -145,7 +148,8 @@ describe('Midmare HttpRouter test: ',  () => {
     router.process('/', function get(ctx) {
   
       ctx.set({
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/plain',
+        'Content-Length': Buffer.byteLength('some-string')
       });
       ctx.body = 'some-string';
     });
@@ -187,12 +191,50 @@ describe('Midmare HttpRouter test: ',  () => {
     router.process('/', function get(ctx) {
       ctx.type = '';
       ctx.body = { ololo: 1 };
-      assert.strictEqual(ctx.length, '');
     });
     
     await request(router.routes())
       .get('/')
       .expect(200);
+  });
+  
+  it('should parse body & query string',async () => {
+    const router = new HttpRouter();
+    
+    router.process('/body/query',  function post(ctx) {
+      ctx.status = 200;
+      ctx.type = 'json';
+      ctx.json({
+        body: ctx.data,
+        query: ctx.query
+      });
+      
+    });
+    
+    router.process('/', function head(ctx) {
+      ctx.body = 'HEAD';
+      ctx.remove('Content-Length');
+    });
+    
+    const server = require('http').createServer(router.routes()).listen();
+    
+    await request(server)
+      .post('/body/query?a=1&b=2&c=3&doubleVal=4&doubleVal=4')
+      .send({ "z": 999, "x": 998, "y": 997 })
+      .set('Accept', 'application/json')
+      .expect(200);
+    
+    await request(server)
+      .post('/body/query?r=1&b=2&c=3&doubleVal=4&doubleVal=4')
+      .send('Bad JSON')
+      .expect(200);
+    
+    await request(server)
+      .head('/')
+      .expect(200);
+    
+    
+    server.close();
   });
   
 });
