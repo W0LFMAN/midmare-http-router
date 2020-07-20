@@ -43,6 +43,8 @@ export namespace Router {
 
                     if (query) {
                         ctx.query = qs.parse(query);
+                    } else {
+                        ctx.query = {};
                     }
 
                     await next();
