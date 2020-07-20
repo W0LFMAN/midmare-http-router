@@ -1,11 +1,33 @@
-
 const fs = require('fs');
+const http = require('http');
 const assert = require('assert');
 const request = require('supertest');
-const { Router: { HttpRouter } } = require('../');
+const {Router: {HttpRouter, delegateHttp}} = require('../');
+const {default: mid} = require('midmare');
 
-describe('Midmare HttpRouter test: ',  () => {
+describe('Midmare HttpRouter test: ', () => {
+  it('should delegate request,response objects to ctx in Application', async function () {
+    const app = mid();
+    
+    const router = new HttpRouter();
+    
+    router.process('/', function get(ctx) {
+      assert(ctx.request instanceof http.IncomingMessage, 'Error: Request object must be in context');
+      assert(ctx.response instanceof http.ServerResponse, 'Error: Response object must be in context');
+    });
+    
+    app
+      .use(router.routes())
+      .init();
+    
+    await request(delegateHttp(app))
+      .get('/')
+      .expect(200);
+  });
+  
   it('should response "Hello world!"', async () => {
+    const app = mid();
+    
     const router = new HttpRouter();
     
     router.process('/', function get(ctx) {
@@ -21,63 +43,76 @@ describe('Midmare HttpRouter test: ',  () => {
       assert.strictEqual(ctx.url, '/');
     });
     
-    await request(router.routes())
+    app
+      .use(router.routes())
+      .init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(200);
   });
   
   it('should response 404', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/', function get(ctx) {
       ctx.body = 'Hello World!';
     });
     
-    await request(router.routes())
+    app
+      .use(router.routes())
+      .init();
+    
+    await request(delegateHttp(app))
       .get('/ololo')
       .expect(404);
+    
   });
   
   it('should use `send` & `end` methods', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/route/1', function get(ctx) {
       ctx.end('Hello World!1');
     });
-  
+    
     router.process('/route/2', function get(ctx) {
       ctx.send('Hello World!2');
     });
     
-    const routes = router.routes();
+    app
+      .use(router.routes()).init();
     
-    const res1 = await request(routes)
+    const res1 = await request(delegateHttp(app))
       .get('/route/1');
-  
-    const res2 = await request(routes)
+    
+    const res2 = await request(delegateHttp(app))
       .get('/route/2');
     
     expect(res1.text).toEqual('Hello World!1');
     expect(res2.text).toEqual('Hello World!2');
   });
   
-  it('should redirect: ',  async () => {
+  it('should redirect: ', async () => {
+    const app = mid();
     const router = new HttpRouter();
-  
+    
     router.process('/route', function get(ctx) {
       ctx.redirect('/');
     });
-  
+    
     router.process('/route/2', function get(ctx) {
       ctx.redirect('back');
     });
-  
-    const routes = router.routes();
-  
-    const res1 = await request(routes)
+    
+    app.use(router.routes()).init();
+    
+    const res1 = await request(delegateHttp(app))
       .get('/route');
-  
-    const res2 = await request(routes)
+    
+    const res2 = await request(delegateHttp(app))
       .get('/route/2');
     
     expect(res1.status).toEqual(302);
@@ -85,6 +120,7 @@ describe('Midmare HttpRouter test: ',  () => {
   });
   
   it('should handle end: ', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/route', function get(ctx) {
@@ -95,12 +131,15 @@ describe('Midmare HttpRouter test: ',  () => {
       });
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/route')
       .expect(200);
   });
   
   it('should force response buffer: ', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/route', function get(ctx) {
@@ -108,45 +147,54 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.body = Buffer.from('Hello World!');
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/route')
       .expect(200);
   });
   
   it('should response 500', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/', function get() {
       throw new Error;
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(500)
   });
   
-  it('should respond `bin`',  async () => {
+  it('should respond `bin`', async () => {
+    const app = mid();
     const router = new HttpRouter();
-  
+    
     router.process('/', function get(ctx) {
       ctx.body = Buffer.from('bin');
     });
-  
-    await request(router.routes())
+    
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(200);
     
-    await request(router.routes())
+    await request(delegateHttp(app))
       .get('/not-matched')
       .expect(404);
     
   });
   
   it('should body be string', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/', function get(ctx) {
-  
+      
       ctx.set({
         'Content-Type': 'text/plain',
         'Content-Length': Buffer.byteLength('some-string')
@@ -154,12 +202,15 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.body = 'some-string';
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(200)
   });
   
   it('should body be html', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/', function get(ctx) {
@@ -168,40 +219,49 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.body = '<h1>Hello World</h1>';
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(200);
   });
   
   it('should body be null', async () => {
-     const router = new HttpRouter();
-  
-     router.process('/', function get(ctx) {
-       ctx.body = null;
-     });
-  
-     await request(router.routes())
-       .get('/')
-       .expect(204);
+    const app = mid();
+    const router = new HttpRouter();
+    
+    router.process('/', function get(ctx) {
+      ctx.body = null;
+    });
+    
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
+      .get('/')
+      .expect(204);
   });
   
   it('should body be json', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
     router.process('/', function get(ctx) {
       ctx.type = '';
-      ctx.body = { ololo: 1 };
+      ctx.body = {ololo: 1};
     });
     
-    await request(router.routes())
+    app.use(router).init();
+    
+    await request(delegateHttp(app))
       .get('/')
       .expect(200);
   });
   
-  it('should parse body & query string',async () => {
+  it('should parse body & query string', async () => {
+    const app = mid();
     const router = new HttpRouter();
     
-    router.process('/body/query',  function post(ctx) {
+    router.process('/body/query', function post(ctx) {
       ctx.status = 200;
       ctx.type = 'json';
       ctx.json({
@@ -216,11 +276,13 @@ describe('Midmare HttpRouter test: ',  () => {
       ctx.remove('Content-Length');
     });
     
-    const server = require('http').createServer(router.routes()).listen();
+    app.use(router).init();
+    
+    const server = require('http').createServer(delegateHttp(app)).listen();
     
     await request(server)
       .post('/body/query?a=1&b=2&c=3&doubleVal=4&doubleVal=4')
-      .send({ "z": 999, "x": 998, "y": 997 })
+      .send({"z": 999, "x": 998, "y": 997})
       .set('Accept', 'application/json')
       .expect(200);
     

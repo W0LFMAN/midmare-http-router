@@ -4,8 +4,16 @@ import * as assert from "assert";
 import * as qs from 'querystring';
 import * as Midmare from "midmare";
 import {Stream} from "stream";
+import {Application} from "midmare/dist";
 
 export namespace Router {
+    export function delegateHttp(app: Application.Application): Midmare.Application.Callback {
+        return <Data extends any>(request: http.IncomingMessage | Midmare.Router.Path, response: http.ServerResponse | Data, ctx: Midmare.Context.Context | NodeJS.Dict<any>) => {
+            if(request instanceof http.IncomingMessage && response instanceof http.ServerResponse)
+                return app.handler(url.parse(request.url || '').pathname || '', null, { request, response });
+            else return app.handler(request as Midmare.Router.Path, response, ctx);
+        };
+    }
 
     export class HttpRouter extends Midmare.Router.Router {
         constructor(options: Midmare.Router.IOptions) {
@@ -66,7 +74,7 @@ export namespace Router {
             })
         }
 
-        protected extendContext(ctx: Midmare.Context.Context, request: http.IncomingMessage, response: http.ServerResponse): Midmare.Context.Context {
+        protected upgrade(ctx: Midmare.Context.Context, request: http.IncomingMessage, response: http.ServerResponse): Midmare.Context.Context {
             Object.defineProperties(ctx, {
                 originRequest: {
                     value: request,
@@ -313,17 +321,16 @@ export namespace Router {
 
         // Simple http routes handling.
         public routes(): Midmare.Application.Callback {
-            return (request: http.IncomingMessage, response: http.ServerResponse) => {
-                const ctx: Midmare.Context.Context = this.extendContext(
-                    Object.create(new Midmare.Context.Context({
-                        path: url.parse(request.url!).pathname,
-                        app: {options: {}} as Midmare.Application.Application
-                    } as Midmare.Context.IOptions)),
-                    request,
-                    response
+            const routes: Midmare.Middleware.Middleware = (ctx: Midmare.Context.Context, next?: Midmare.Middleware.NextCallback) => {
+                next = typeof next === 'function' ? next : (err?: Error) => err ? ctx.error(err) : ctx.next && ctx.next();
+
+                ctx = this.upgrade(
+                    Midmare.Context.Context.clone(ctx),
+                    ctx.request,
+                    ctx.response
                 );
 
-                const executor = (ctx: Midmare.Context.Context): Promise<any> => {
+                const executor = (ctx: Midmare.Context.Context, next: Midmare.Middleware.NextCallback): any => {
                     const method = ctx.method ? ctx.method.toLowerCase() : ctx.method;
                     const path = this.options.routerPath || ctx.routerPath || ctx.path;
 
@@ -335,7 +342,8 @@ export namespace Router {
                         ctx.matched = matched.path;
                     }
 
-                    if (!matched.route) return Promise.resolve();
+                    if (!matched.route && next) return next();
+                    else if(!matched.route) return Promise.resolve();
 
                     const matchedRoutes = matched.path;
                     const mostSpecificRoute = matchedRoutes[matchedRoutes.length - 1];
@@ -344,7 +352,7 @@ export namespace Router {
                         ctx._matchedRouteName = mostSpecificRoute.name;
                     }
 
-                    const routeChain = matchedRoutes.reduce((memo, route) => {
+                    const routeChain = matchedRoutes.reduce((memo: Midmare.Middleware.Middleware[], route: Midmare.Route.Route) => {
                         memo.push((ctx, next) => {
                             ctx.captures = route.captures(path);
                             ctx.params = route.params(ctx.captures, ctx.params);
@@ -355,15 +363,13 @@ export namespace Router {
                         return memo.concat(route.stack.filter(mw => mw.method === method || !mw.method));
                     }, [] as Midmare.Middleware.Middleware[]);
 
-                    const caller = Midmare.Application.Application.createCompose([...routeChain, ctx => {
+                    return Midmare.Application.Application.createCompose([...routeChain, ctx => {
                         ctx.status = 404;
                         ctx.body = {status: 404, message: 'Not Found'};
-                    }]);
-
-                    return caller(ctx);
+                    }])(ctx);
                 };
 
-                executor(ctx).then(() => {
+                executor(ctx, next).then(() => {
                     if (ctx.writable && ctx.respond !== false) {
                         if ([204, 205, 304].includes(ctx.status)) {
                             ctx.body = null;
@@ -378,26 +384,30 @@ export namespace Router {
                             return ctx.end();
                         }
 
-                        if (ctx._body instanceof Stream) return ctx.body!.pipe(response);
+                        if (ctx._body instanceof Stream) return ctx.body!.pipe(ctx.response);
 
                         if ([null, undefined].includes(ctx._body)) {
                             ctx.remove('Content-Type');
                             ctx.remove('Transfer-Encoding');
-                            return response.end();
+                            return ctx.response.end();
                         }
 
-                        if (Buffer.isBuffer(ctx._body)) return response.end(ctx._body);
-                        if (typeof ctx._body === 'string') return response.end(ctx._body);
+                        if (Buffer.isBuffer(ctx._body)) return ctx.response.end(ctx._body);
+                        if (typeof ctx._body === 'string') return ctx.response.end(ctx._body);
 
                         ctx.body = JSON.stringify(ctx._body);
-                        if (!response.headersSent) {
+                        if (!ctx.response.headersSent) {
                             ctx.length = Buffer.byteLength(ctx.body);
                         }
-                        response.end(ctx.body);
+                        ctx.response.end(ctx.body);
                     }
                 });
-
             };
+
+            routes.router = this;
+            routes.http = true;
+
+            return routes;
         }
     }
 }
