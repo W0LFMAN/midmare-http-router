@@ -4,10 +4,11 @@
 
 ```js
 const { createServer } = require('http');
-const { Router: { HttpRouter } } = require('midmare-http-router');
+const { default: mid } = require('midmare');
+const { Router: { HttpRouter, delegateHttp } } = require('midmare-http-router');
 
 // HTTP ROUTER
-
+const app = mid();
 const httpRouter = new HttpRouter();
 
 // Use named function declaration to 
@@ -15,6 +16,9 @@ httpRouter.process('/', function get(ctx) {
     ctx.status = 200;
     ctx.body = { ololo:1 };
 });
+app.use(httpRouter).init();
 
-createServer(httpRouter.routes()).listen(3000);
+// Be sure that you use `delegateHttp` on app.
+// delegateHttp make app understand that at some moment you will get request response object. And it will be injected to context.
+createServer(delegateHttp(app)).listen(3000);
 ```

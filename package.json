@@ -1,6 +1,6 @@
 {
   "name": "midmare-http-router",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "midmare http router lib",
   "main": "dist/lib/HttpRouter.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "lint": "eslint --config .eslintrc.json",
     "fix": "eslint --config .eslintrc.json --fix",
     "test": "jest __tests__/",
-    "coverage": "jest __tests__/ --coverage --collectCoverageFrom=dist/**/*.js"
+    "coverage": "jest __tests__/ --coverage --collectCoverageFrom=dist/**/*.js",
+    "pre": "npm run lint && npm run compile && npm run test"
   },
   "keywords": [
     "http",
@@ -26,7 +27,7 @@
   "author": "Ivan Petushynskyi",
   "license": "ISC",
   "dependencies": {
-    "midmare": "^1.4.7"
+    "midmare": "^1.4.16"
   },
   "devDependencies": {
     "@types/node": "^14.0.14",
